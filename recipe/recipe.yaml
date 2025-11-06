@@ -1,0 +1,171 @@
+# This recipe uses the v1 YAML format introduced by CEP 13
+# For more information see: https://prefix-dev.github.io/rattler-build/latest/reference/recipe_file/
+
+context:
+  name: adios2
+  version: 2.8.3
+  sha256: 4906ab1899721c41dd918dddb039ba2848a1fb0cf84f3a563a1179b9d6ee0d9f
+  build_number: 5
+  # MPI variant defaults (will be overridden by variant_config.yaml)
+  mpi: nompi
+
+recipe:
+  name: ${{ name }}-split
+  version: ${{ version }}
+
+source:
+  url: https://github.com/ornladios/ADIOS2/archive/v${{ version }}.tar.gz
+  sha256: ${{ sha256 }}
+  patches:
+    - python-exclude-from-all.patch
+
+build:
+  number: ${{ build_number }}
+
+outputs:
+  - package:
+      name: libadios2
+    build:
+      script:
+        - if: unix
+          then: build-libadios.sh
+        - if: win
+          then: build-libadios.bat
+      string: "${{ 'nompi' if mpi == 'nompi' else 'mpi_' + mpi }}_h${{ hash }}_${{ build_number + (100 if mpi == 'nompi' else 0) }}"
+      skip:
+        - if: python_impl == "pypy"
+          then: true
+      ignore_run_exports:
+        - cross-python
+        - python
+        - mpi4py
+        - numpy
+      run_exports:
+        - ${{ pin_subpackage('libadios2', upper_bound='x.x.x') }} ${{ 'nompi' if mpi == 'nompi' else 'mpi_' + mpi }}_*
+    requirements:
+      build:
+        - ${{ compiler('c') }}
+        - ${{ compiler('cxx') }}
+        - ${{ stdlib('c') }}
+        - if: unix
+          then:
+            - gnuconfig
+            - make
+            - pkg-config
+            - flex
+            - bison
+        - if: linux
+          then: ${{ compiler('fortran') }}
+        - cmake >=3.23,<3.24
+        - if: mpi == "openmpi"
+          then: ${{ mpi }}
+        - if: build_platform != target_platform
+          then:
+            - python
+            - cross-python_${{ target_platform }}
+            - numpy
+      host:
+        - if: mpi != "nompi"
+          then: ${{ mpi }}
+        - libffi
+        - hdf5
+        - hdf5 * ${{ 'nompi' if mpi == 'nompi' else 'mpi_' + mpi }}_*
+        - if: not win
+          then: zeromq >=4.1
+        - bzip2
+        - blosc
+        - libpng
+        - zfp >=0.5,<1.0
+        - zlib
+        - if: mpi != "nompi"
+          then: mpi4py
+        - python
+        - numpy
+      run:
+        - if: mpi != "nompi"
+          then: ${{ mpi }}
+    tests:
+      - script:
+          - if: unix
+            then:
+              - test -f ${PREFIX}/lib/cmake/adios2/adios2-config.cmake
+              - test ! -d ${SP_DIR}/adios2
+              - test ! -f ${PREFIX}/bin/bp5dbg
+          - if: linux
+            then:
+              - test -f ${PREFIX}/lib/libadios2_cxx11.so
+          - if: osx
+            then:
+              - otool -L ${PREFIX}/lib/libadios2_cxx11.dylib
+          - if: win
+            then:
+              - if exist %LIBRARY_PREFIX%\bin\adios2_cxx11.dll (exit 0) else (exit 1)
+              - if exist %LIBRARY_PREFIX%\lib\cmake\adios2\adios2-config.cmake (exit 0) else (exit 1)
+              - if exist %SP_DIR%\adios2 (exit 1) else (exit 0)
+              - if exist %LIBRARY_PREFIX%\bin\bp5dbg (exit 1) else (exit 0)
+
+  - package:
+      name: adios2
+    build:
+      script:
+        - if: unix
+          then: build-adios-py.sh
+        - if: win
+          then: build-adios-py.bat
+      string: "${{ 'nompi' if mpi == 'nompi' else 'mpi_' + mpi }}_py${{ python | version_to_buildstring }}_h${{ hash }}_${{ build_number + (100 if mpi == 'nompi' else 0) }}"
+      skip:
+        - if: python_impl == "pypy"
+          then: true
+      run_exports:
+        - ${{ pin_subpackage('adios2', upper_bound='x.x.x') }} ${{ 'nompi' if mpi == 'nompi' else 'mpi_' + mpi }}_*
+    requirements:
+      build:
+        - if: build_platform != target_platform
+          then:
+            - python
+            - cross-python_${{ target_platform }}
+            - numpy
+        - cmake
+      host:
+        - if: mpi != "nompi"
+          then: ${{ mpi }}
+        - ${{ pin_subpackage('libadios2', exact=true) }}
+        - python
+        - if: mpi != "nompi"
+          then: mpi4py
+        - numpy
+      run:
+        - if: mpi != "nompi"
+          then: ${{ mpi }}
+        - ${{ pin_subpackage('libadios2', exact=true) }}
+        - python
+        - if: mpi != "nompi"
+          then: mpi4py
+        - numpy
+    tests:
+      - script:
+          - python -c "import adios2; print(adios2.__version__)"
+          - if: unix
+            then: bp5dbg --help
+          - if: win
+            then: if exist %LIBRARY_PREFIX%\bin\bp5dbg (exit 0) else (exit 1)
+
+about:
+  homepage: https://www.olcf.ornl.gov/center-projects/adios/
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: Next generation of ADIOS developed in the Exascale Computing Program
+  description: |
+    ADIOS2 is the latest implementation of the ADaptable Input Output System,
+    ADIOS. This brand new architecture was designed to continue supporting the
+    performance legacy of ADIOS, and extend its current capabilities to address
+    current and future input/output (IO) challenges in the scientific data
+    lifecycle through effective research and development (R&D) activities.
+  documentation: https://adios2.readthedocs.io
+  repository: https://github.com/ornladios/ADIOS2
+
+extra:
+  recipe-maintainers:
+    - ax3l
+    - chuckatkins
+    - williamfgc
